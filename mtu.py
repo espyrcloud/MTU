@@ -14,7 +14,7 @@ def print_banner():
 | |_____________| |
 |_________________|
                                             
-👉 espyr cloud MTU Optimizer 👈
+espyr cloud MTU Optimizer 
 
 """
     print(banner)
@@ -45,10 +45,10 @@ Select IP type:
             break
         print("Invalid choice. Please enter 1 or 2.")
 
-    dest_ip = input("Enter destination IP: ").strip()
+    dest_ip = input("Enter destination IP address (default: 1.1.1.1) : ").strip()
     if not dest_ip:
-        print("No IP entered. Exiting.")
-        sys.exit(1)
+        dest_ip = "1.1.1.1".strip()
+
 
     iface_default = input("Your current network interface is detected as: eth0 Is this correct? (Y/n):  ").strip().lower()
     if iface_default == "y":
