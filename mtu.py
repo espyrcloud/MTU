@@ -21,7 +21,7 @@ try:
         print(banner)
 
     def exit():
-        exit = input("do you want to exit ? (y/n) > ")
+        exit = input("\n\n do you want to exit ? (y/n) > ")
         if exit == "y":
             sys.exit(1)
         else:
