@@ -76,48 +76,15 @@ def get_network_interfaces():
             interfaces.append(iface)
     return interfaces
 
-def save_mtu_setting(interface, mtu):
-    print(f"\033[1;33m💾 Saving MTU setting permanently for {interface}...\033[0m")
-
-    if os.path.exists("/etc/netplan/"):
-        netplan_files = [f for f in os.listdir("/etc/netplan/") if f.endswith(".yaml")]
-        if netplan_files:
-            netplan_path = os.path.join("/etc/netplan", netplan_files[0])
-            print(f"\033[1;33m🔧 Updating {netplan_path} with MTU: {mtu}\033[0m")
-            with open(netplan_path, "r") as f:
-                lines = f.readlines()
-            with open(netplan_path, "w") as f:
-                for line in lines:
-                    f.write(line)
-                    if line.strip().startswith(interface + ":"):
-                        f.write(f"      mtu: {mtu}\n")
-            subprocess.run(["sudo", "netplan", "apply"])
-            return
-
-    if os.path.exists("/etc/network/interfaces"):
-        print("\033[1;33m🔧 Updating /etc/network/interfaces...\033[0m")
-        with open("/etc/network/interfaces", "r") as f:
-            content = f.read()
-        new_content = re.sub(
-            rf"(iface {interface} inet[^\n]*\n)", rf"\1    mtu {mtu}\n", content
-        )
-        with open("/etc/network/interfaces", "w") as f:
-            f.write(new_content)
-        subprocess.run(["sudo", "ifdown", interface])
-        subprocess.run(["sudo", "ifup", interface])
-        return
-
-    print("\033[1;31mCould not detect Netplan or ifupdown. Please set MTU manually.\033[0m")
-
 def find_max_mtu(ip, proto, interface, step):
     min_mtu = 1420
     max_mtu = 1475
     last_success = None
 
-    print(f"\033[1;36m🚀 Starting MTU discovery for {proto} on {interface} -> {ip}...\033[0m")
+    print(f"🚀 Starting MTU discovery for {proto} on {interface} -> {ip}...")
     mtu = max_mtu
     while mtu >= min_mtu:
-        print(f"\033[1;34m📶 Testing MTU: {mtu} on {interface}...\033[0m", end=' ')
+        print(f"📶 Testing MTU: {mtu} on {interface}...", end=' ')
         size = mtu - (28 if proto == "IPv4" else 48)
         ping_cmd = ["ping", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"] \
             if proto == "IPv4" else ["ping6", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"]
@@ -125,26 +92,25 @@ def find_max_mtu(ip, proto, interface, step):
         result = subprocess.run(ping_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         if result.returncode == 0:
-            print("\033[1;32mSuccess\033[0m")
+            print("Success")
             last_success = mtu
             break
         else:
-            print("\033[1;31m❌ Failed\033[0m")
+            print("❌ Failed")
 
         mtu -= step
         time.sleep(1)
 
     if last_success:
-        print(f"\n\033[1;33m📏 Maximum working MTU for {interface} is: {last_success}\033[0m")
-        print(f"\033[1;33m🛠️ Setting MTU to {last_success} on {interface}...\033[0m")
+        print(f"\n📏 Maximum working MTU for {interface} is: {last_success}")
+        print(f"🛠️ Setting MTU temporarily to {last_success} on {interface}...")
         result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(last_success)])
         if result.returncode == 0:
-            print(f"\033[1;32m✅ MTU successfully set to {last_success} on {interface}\033[0m")
-            save_mtu_setting(interface, last_success)
+            print(f"✅ MTU successfully set to {last_success} on {interface}")
         else:
-            print(f"\033[1;31mFailed to apply MTU on interface: {interface}\033[0m")
+            print("❌ Failed to apply MTU on interface:", interface)
     else:
-        print(f"\033[1;31mNo working MTU found for {interface} in range {min_mtu}-{max_mtu}\033[0m")
+        print(f"No working MTU found for {interface} in range {min_mtu}-{max_mtu}")
 
 def add_cron_job():
     python_path = shutil.which("python3") or "python3"
