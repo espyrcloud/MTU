@@ -5,58 +5,44 @@ import shutil
 import time
 import re
 
-
 def print_banner():
     os.system('clear')
     banner = """
-_________________ 
+\033[1;32m_________________ 
 |  _____________  |
-| | espyr cloud | |
+| | \033[1;36mespyr cloud\033[1;32m | |
 | |_____________| |
 |_________________|
-                                            
-espyr cloud MTU Optimizer 
 
+\033[1;33mespyr cloud MTU Optimizer\033[0m
 """
     print(banner)
 
-def exit():
-    exit = input("do you want to exit ? (y/n) > ")
-    if exit == "y":
-        sys.exit(1)
-    else:
-        main()
 def check_requirements():
-    print("Checking for required tools...")
+    print("\033[1;32m[+] Checking for required tools...\033[0m")
     tools = ["ping", "ping6", "ip"]
     for tool in tools:
         if shutil.which(tool) is None:
-            print(f"{tool} is missing. Installing...")
+            print(f"\033[1;31m[-] {tool} is missing. Installing...\033[0m")
             subprocess.run(["sudo", "apt-get", "update"])
             subprocess.run(["sudo", "apt-get", "install", "-y", tool])
 
-
 def show_menu():
-    print('''
-Select IP type:
-1- IPv4
-2- IPv6
-
-''')
+    print('\033[1;36mSelect IP type:\033[0m')
+    print('\033[1;33m1- IPv4\n2- IPv6\033[0m')
 
     while True:
-        ip_type = input("Enter choice [1-2]: ").strip()
+        ip_type = input("\033[1;34mEnter choice [1-2]: \033[0m").strip()
         if ip_type in ("1", "2"):
             break
-        print("Invalid choice. Please enter 1 or 2.")
+        print("\033[1;31mInvalid choice. Please enter 1 or 2.\033[0m")
 
-    dest_ip = input("Enter destination IP address (default: 1.1.1.1) : ").strip()
+    dest_ip = input("\033[1;34mEnter destination IP address (default: 1.1.1.1): \033[0m").strip()
     if not dest_ip:
-        dest_ip = "1.1.1.1".strip()
+        dest_ip = "1.1.1.1"
 
     step_size = 1
     return ip_type, dest_ip, step_size
-
 
 def get_network_interfaces():
     result = subprocess.run(["ip", "-o", "link", "show"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -67,50 +53,15 @@ def get_network_interfaces():
             interfaces.append(iface)
     return interfaces
 
-
-def save_mtu_setting(interface, mtu):
-    print(f"💾 Saving MTU setting permanently for {interface}...")
-
-    if os.path.exists("/etc/netplan/"):
-        netplan_files = [f for f in os.listdir("/etc/netplan/") if f.endswith(".yaml")]
-        if netplan_files:
-            netplan_path = os.path.join("/etc/netplan", netplan_files[0])
-            print(f"🔧 Updating {netplan_path} with MTU: {mtu}")
-            with open(netplan_path, "r") as f:
-                lines = f.readlines()
-            with open(netplan_path, "w") as f:
-                for line in lines:
-                    f.write(line)
-                    if line.strip().startswith(interface + ":"):
-                        f.write(f"      mtu: {mtu}\n")
-            subprocess.run(["sudo", "netplan", "apply"])
-            return
-
-    if os.path.exists("/etc/network/interfaces"):
-        print("🔧 Updating /etc/network/interfaces...")
-        with open("/etc/network/interfaces", "r") as f:
-            content = f.read()
-        new_content = re.sub(
-            rf"(iface {interface} inet[^\n]*\n)", rf"\1    mtu {mtu}\n", content
-        )
-        with open("/etc/network/interfaces", "w") as f:
-            f.write(new_content)
-        subprocess.run(["sudo", "ifdown", interface])
-        subprocess.run(["sudo", "ifup", interface])
-        return
-
-    print(" Could not detect Netplan or ifupdown. Please set MTU manually.")
-
-
 def find_max_mtu(ip, proto, interface, step):
     min_mtu = 1420
     max_mtu = 1475
     last_success = None
 
-    print(f"🚀 Starting MTU discovery for {proto} on {interface} -> {ip}...")
+    print(f"\n\033[1;35m[>] Starting MTU discovery for {proto} on {interface} -> {ip}...\033[0m")
     mtu = max_mtu
     while mtu >= min_mtu:
-        print(f"📶 Testing MTU: {mtu} on {interface}...", end=' ')
+        print(f"\033[1;34m[*] Testing MTU: {mtu} on {interface}...\033[0m", end=' ')
         size = mtu - (28 if proto == "IPv4" else 48)
         ping_cmd = ["ping", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"] \
             if proto == "IPv4" else ["ping6", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"]
@@ -118,27 +69,25 @@ def find_max_mtu(ip, proto, interface, step):
         result = subprocess.run(ping_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         if result.returncode == 0:
-            print("Success")
+            print("\033[1;32mSuccess\033[0m")
             last_success = mtu
             break
         else:
-            print("❌ Failed")
+            print("\033[1;31m❌ Failed\033[0m")
 
         mtu -= step
         time.sleep(1)
 
     if last_success:
-        print(f"\n📏 Maximum working MTU for {interface} is: {last_success}")
-        print(f"🛠️ Setting MTU to {last_success} on {interface}...")
+        print(f"\033[1;35m\n[✔] Maximum working MTU for {interface} is: {last_success}\033[0m")
+        print(f"\033[1;33m[~] Setting MTU to {last_success} on {interface}...\033[0m")
         result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(last_success)])
         if result.returncode == 0:
-            print(f"✅ MTU successfully set to {last_success} on {interface}")
-            save_mtu_setting(interface, last_success)
+            print(f"\033[1;32m[+] MTU successfully set to {last_success} on {interface}\033[0m")
         else:
-            print("Failed to apply MTU on interface:", interface)
+            print("\033[1;31m[!] Failed to apply MTU on interface:\033[0m", interface)
     else:
-        print(f"No working MTU found for {interface} in range {min_mtu}-{max_mtu}")
-
+        print(f"\033[1;31m[-] No working MTU found for {interface} in range {min_mtu}-{max_mtu}\033[0m")
 
 def main():
     print_banner()
@@ -148,29 +97,27 @@ def main():
 
     interfaces = get_network_interfaces()
     if not interfaces:
-        print("No valid network interfaces found.")
+        print("\033[1;31m[!] No valid network interfaces found.\033[0m")
         sys.exit(1)
 
     for interface in interfaces:
-        print(f"\n Processing interface: {interface}")
+        print(f"\n\033[1;36m[*] Processing interface: {interface}\033[0m")
         find_max_mtu(ip, proto, interface, step)
 
 def ask_exit():
     try:
-        choice = input("\n\n❓ Do you want to exit? (y/n): ").strip().lower()
+        choice = input("\n\033[1;34m❓ Do you want to exit? (y/n): \033[0m").strip().lower()
         if choice == "y":
-            print("\nGoodbye!")
+            print("\033[1;32m\nGoodbye!\033[0m")
             sys.exit(0)
         else:
             main()
     except KeyboardInterrupt:
-        print("\nDetected another interrupt. Forcing exit.")
+        print("\n\033[1;31mDetected another interrupt. Forcing exit.\033[0m")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         ask_exit()
-
