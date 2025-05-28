@@ -50,35 +50,54 @@ def load_config():
 def show_menu():
     print('''
 Select IP type:
-1 - IPv4
-2 - IPv6
-3 - Manual MTU setting
+1- IPv4
+2- IPv6
+3- Select interface manually and set MTU
 ''')
     while True:
         ip_type = input("Enter choice [1-3]: ").strip()
         if ip_type in ("1", "2", "3"):
             break
-        print("\033[1;31mInvalid choice. Please enter 1, 2, or 3.\033[0m")
+        print("\033[1;31mInvalid choice. Please enter 1, 2 or 3.\033[0m")
 
-    if ip_type == "3":
-        interfaces = get_network_interfaces()
-        manual_mtu_setting(interfaces)
-        sys.exit(0)
+    if ip_type in ("1", "2"):
+        dest_ip = input("Enter destination IP address (default: 1.1.1.1): ").strip()
+        if not dest_ip:
+            dest_ip = "1.1.1.1"
+        step_size = 1
+        return ip_type, dest_ip, step_size
+    else:
+        return ip_type, None, None
 
-    dest_ip = input("Enter destination IP address (default: 1.1.1.1): ").strip()
-    if not dest_ip:
-        dest_ip = "1.1.1.1"
-
-    step_size = 1
-    return ip_type, dest_ip, step_size
-
-def get_network_interfaces():
-    result = subprocess.run(["ip", "-o", "link", "show"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def get_network_interfaces(ipv6=False):
     interfaces = []
-    for line in result.stdout.decode().splitlines():
-        iface = line.split(":")[1].strip().split("@")[0]
-        if iface != "lo" and not iface.startswith(("veth", "docker", "br-", "vmnet", "virbr")):
+    result = subprocess.run(["ip", "-o", "addr", "show"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    lines = result.stdout.splitlines()
+
+    iface_dict = {}
+
+    for line in lines:
+        parts = line.split()
+        iface = parts[1]
+        if iface == "lo" or iface.startswith(("veth", "docker", "br-", "vmnet", "virbr")):
+            continue
+
+        if iface not in iface_dict:
+            iface_dict[iface] = {"ipv4": [], "ipv6": []}
+
+        if parts[2] == "inet":
+            iface_dict[iface]["ipv4"].append(parts[3])
+        elif parts[2] == "inet6":
+            iface_dict[iface]["ipv6"].append(parts[3])
+
+    for iface, addrs in iface_dict.items():
+        if ipv6:
+            has_global_ipv6 = any(not addr.startswith(("fe80", "fd00", "fc00")) for addr in addrs["ipv6"])
+            if has_global_ipv6:
+                interfaces.append(iface)
+        else:
             interfaces.append(iface)
+
     return interfaces
 
 def find_max_mtu(ip, proto, interface, step):
@@ -86,10 +105,10 @@ def find_max_mtu(ip, proto, interface, step):
     max_mtu = 1475
     last_success = None
 
-    print(f"🚀 Starting MTU discovery for {proto} on {interface} -> {ip}...")
+    print(f"Starting MTU discovery for {proto} on {interface} -> {ip}...")
     mtu = max_mtu
     while mtu >= min_mtu:
-        print(f"📶 Testing MTU: {mtu} on {interface}...", end=' ')
+        print(f"Testing MTU: {mtu} on {interface}...", end=' ')
         size = mtu - (28 if proto == "IPv4" else 48)
         ping_cmd = ["ping", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"] \
             if proto == "IPv4" else ["ping6", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"]
@@ -107,48 +126,64 @@ def find_max_mtu(ip, proto, interface, step):
         time.sleep(1)
 
     if last_success:
+        if interface != "eth0":
+            last_success -= 40
+            if last_success < min_mtu:
+                last_success = min_mtu
         print(f"\n📏 Maximum working MTU for {interface} is: {last_success}")
-        target_mtu = last_success if interface == "eth0" else last_success - 40
-        print(f"🛠️ Setting MTU temporarily to {target_mtu} on {interface}...")
-        result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(target_mtu)])
+        print(f"🛠️ Setting MTU temporarily to {last_success} on {interface}...")
+        result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(last_success)])
         if result.returncode == 0:
-            print(f"MTU successfully set to {target_mtu} on {interface}")
+            print(f"MTU successfully set to {last_success} on {interface}")
         else:
             print("Failed to apply MTU on interface:", interface)
     else:
         print(f"No working MTU found for {interface} in range {min_mtu}-{max_mtu}")
 
-def manual_mtu_setting(interfaces):
-    print("\n🔧 Available interfaces:")
-    for idx, iface in enumerate(interfaces):
-        print(f"{idx + 1} - {iface}")
+def manual_mtu_set():
+    interfaces = get_network_interfaces(ipv6=False)
+    if not interfaces:
+        print("\033[1;31m[!] No valid network interfaces found.\033[0m")
+        return
+
+    print("\nAvailable network interfaces:")
+    for idx, iface in enumerate(interfaces, 1):
+        print(f"{idx}. {iface}")
+
     while True:
         choice = input("Select interface by number: ").strip()
         if choice.isdigit() and 1 <= int(choice) <= len(interfaces):
-            iface = interfaces[int(choice) - 1]
+            selected_iface = interfaces[int(choice) - 1]
             break
-        print("Invalid choice.")
+        print("\033[1;31mInvalid selection. Try again.\033[0m")
+
     while True:
-        mtu_val = input(f"Enter MTU value for {iface}: ").strip()
-        if mtu_val.isdigit():
+        mtu_value = input(f"Enter desired MTU value for {selected_iface}: ").strip()
+        if mtu_value.isdigit() and 500 <= int(mtu_value) <= 9000:
+            mtu_value = int(mtu_value)
             break
-        print("Invalid MTU. Enter a numeric value.")
-    result = subprocess.run(["sudo", "ip", "link", "set", "dev", iface, "mtu", mtu_val])
+        print("\033[1;31mInvalid MTU. Must be a number between 500 and 9000.\033[0m")
+
+    print(f"🛠️ Setting MTU to {mtu_value} on {selected_iface}...")
+    result = subprocess.run(["sudo", "ip", "link", "set", "dev", selected_iface, "mtu", str(mtu_value)])
     if result.returncode == 0:
-        print(f"MTU {mtu_val} set on {iface}")
+        print(f"MTU successfully set to {mtu_value} on {selected_iface}")
     else:
-        print(f"Failed to set MTU on {iface}")
+        print("Failed to apply MTU on interface:", selected_iface)
 
 def add_cron_job():
     python_path = shutil.which("python3") or "python3"
     script_path = os.path.abspath(sys.argv[0])
+
     cron_line = f"*/5 * * * * {python_path} {script_path} --no-interact >> ~/mtu_optimizer.log 2>&1"
     try:
         existing_cron = subprocess.run(["crontab", "-l"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         cron_jobs = existing_cron.stdout if existing_cron.returncode == 0 else ""
+
         if cron_line in cron_jobs:
             print("\033[1;33m[*] Cron job already exists.\033[0m")
             return
+
         new_cron = cron_jobs + "\n" + cron_line + "\n"
         proc = subprocess.run(["crontab", "-"], input=new_cron, text=True)
         if proc.returncode == 0:
@@ -174,9 +209,13 @@ def main(no_interact=False):
         ip = cfg.get("ip")
         step = cfg.get("step")
 
+    if ip_type == "3":
+        manual_mtu_set()
+        return
+
     proto = "IPv4" if ip_type == "1" else "IPv6"
 
-    interfaces = get_network_interfaces()
+    interfaces = get_network_interfaces(ipv6=(proto == "IPv6"))
     if not interfaces:
         print("\033[1;31m[!] No valid network interfaces found.\033[0m")
         sys.exit(1)
