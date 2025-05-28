@@ -10,6 +10,7 @@ CONFIG_FILE = os.path.expanduser("~/.mtu_optimizer_config.json")
 def print_banner():
     os.system('clear')
     banner = """
+\033[1;34m
 _________________
 |  _____________  |
 | | espyr cloud | |
@@ -17,15 +18,16 @@ _________________
 |_________________|
 
 espyr cloud MTU Optimizer
+\033[0m
 """
     print(banner)
 
 def check_requirements():
-    print("Checking for required tools...")
-    tools = ["ping", "ip"]
+    print("\033[1;33mChecking for required tools...\033[0m")
+    tools = ["ping", "ping6", "ip"]
     for tool in tools:
         if shutil.which(tool) is None:
-            print(f"{tool} is missing. Installing...")
+            print(f"\033[1;31m{tool} is missing. Installing...\033[0m")
             subprocess.run(["sudo", "apt-get", "update"])
             subprocess.run(["sudo", "apt-get", "install", "-y", tool])
 
@@ -34,7 +36,7 @@ def save_config(data):
         with open(CONFIG_FILE, "w") as f:
             json.dump(data, f)
     except Exception as e:
-        print(f"Error saving config: {e}")
+        print(f"\033[1;31mError saving config: {e}\033[0m")
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -42,31 +44,32 @@ def load_config():
             with open(CONFIG_FILE) as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading config: {e}")
+            print(f"\033[1;31mError loading config: {e}\033[0m")
     return None
 
 def show_menu():
     print('''
-Select option:
-1- Optimize MTU automatically for IPv4
-2- Select interface manually and set MTU
+Select IP type:
+1- IPv4
+2- IPv6
+3- Select interface manually and set MTU
 ''')
     while True:
-        choice = input("Enter choice [1-2]: ").strip()
-        if choice in ("1", "2"):
+        ip_type = input("Enter choice [1-3]: ").strip()
+        if ip_type in ("1", "2", "3"):
             break
-        print("Invalid choice. Please enter 1 or 2.")
+        print("\033[1;31mInvalid choice. Please enter 1, 2 or 3.\033[0m")
 
-    if choice == "1":
-        dest_ip = input("Enter destination IPv4 address (default: 1.1.1.1): ").strip()
+    if ip_type in ("1", "2"):
+        dest_ip = input("Enter destination IP address (default: 1.1.1.1): ").strip()
         if not dest_ip:
             dest_ip = "1.1.1.1"
         step_size = 1
-        return choice, dest_ip, step_size
+        return ip_type, dest_ip, step_size
     else:
-        return choice, None, None
+        return ip_type, None, None
 
-def get_network_interfaces():
+def get_network_interfaces(ipv6=False):
     interfaces = []
     result = subprocess.run(["ip", "-o", "addr", "show"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     lines = result.stdout.splitlines()
@@ -80,28 +83,35 @@ def get_network_interfaces():
             continue
 
         if iface not in iface_dict:
-            iface_dict[iface] = []
+            iface_dict[iface] = {"ipv4": [], "ipv6": []}
 
         if parts[2] == "inet":
-            iface_dict[iface].append(parts[3])
+            iface_dict[iface]["ipv4"].append(parts[3])
+        elif parts[2] == "inet6":
+            iface_dict[iface]["ipv6"].append(parts[3])
 
     for iface, addrs in iface_dict.items():
-        if addrs:
+        if ipv6:
+            has_global_ipv6 = any(not addr.startswith(("fe80", "fd00", "fc00")) for addr in addrs["ipv6"])
+            if has_global_ipv6:
+                interfaces.append(iface)
+        else:
             interfaces.append(iface)
 
     return interfaces
 
-def find_max_mtu(ip, interface, step):
+def find_max_mtu(ip, proto, interface, step):
     min_mtu = 1420
     max_mtu = 1475
     last_success = None
 
-    print(f"Starting MTU discovery for IPv4 on {interface} -> {ip}...")
+    print(f"🚀 Starting MTU discovery for {proto} on {interface} -> {ip}...")
     mtu = max_mtu
     while mtu >= min_mtu:
-        print(f"Testing MTU: {mtu} on {interface}...", end=' ')
-        size = mtu - 28
-        ping_cmd = ["ping", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"]
+        print(f"📶 Testing MTU: {mtu} on {interface}...", end=' ')
+        size = mtu - (28 if proto == "IPv4" else 48)
+        ping_cmd = ["ping", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"] \
+            if proto == "IPv4" else ["ping6", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"]
 
         result = subprocess.run(ping_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -110,7 +120,7 @@ def find_max_mtu(ip, interface, step):
             last_success = mtu
             break
         else:
-            print("Failed")
+            print("❌ Failed")
 
         mtu -= step
         time.sleep(1)
@@ -120,20 +130,20 @@ def find_max_mtu(ip, interface, step):
             last_success -= 40
             if last_success < min_mtu:
                 last_success = min_mtu
-        print(f"Maximum working MTU for {interface} is: {last_success}")
-        print(f"Setting MTU temporarily to {last_success} on {interface}...")
+        print(f"\n📏 Maximum working MTU for {interface} is: {last_success}")
+        print(f"🛠️ Setting MTU temporarily to {last_success} on {interface}...")
         result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(last_success)])
         if result.returncode == 0:
-            print(f"MTU successfully set to {last_success} on {interface}")
+            print(f"✅ MTU successfully set to {last_success} on {interface}")
         else:
-            print("Failed to apply MTU on interface:", interface)
+            print("❌ Failed to apply MTU on interface:", interface)
     else:
         print(f"No working MTU found for {interface} in range {min_mtu}-{max_mtu}")
 
 def manual_mtu_set():
-    interfaces = get_network_interfaces()
+    interfaces = get_network_interfaces(ipv6=False)
     if not interfaces:
-        print("No valid network interfaces found.")
+        print("\033[1;31m[!] No valid network interfaces found.\033[0m")
         return
 
     print("\nAvailable network interfaces:")
@@ -145,21 +155,21 @@ def manual_mtu_set():
         if choice.isdigit() and 1 <= int(choice) <= len(interfaces):
             selected_iface = interfaces[int(choice) - 1]
             break
-        print("Invalid selection. Try again.")
+        print("\033[1;31mInvalid selection. Try again.\033[0m")
 
     while True:
         mtu_value = input(f"Enter desired MTU value for {selected_iface}: ").strip()
         if mtu_value.isdigit() and 500 <= int(mtu_value) <= 9000:
             mtu_value = int(mtu_value)
             break
-        print("Invalid MTU. Must be a number between 500 and 9000.")
+        print("\033[1;31mInvalid MTU. Must be a number between 500 and 9000.\033[0m")
 
-    print(f"Setting MTU to {mtu_value} on {selected_iface}...")
+    print(f"🛠️ Setting MTU to {mtu_value} on {selected_iface}...")
     result = subprocess.run(["sudo", "ip", "link", "set", "dev", selected_iface, "mtu", str(mtu_value)])
     if result.returncode == 0:
-        print(f"MTU successfully set to {mtu_value} on {selected_iface}")
+        print(f"✅ MTU successfully set to {mtu_value} on {selected_iface}")
     else:
-        print("Failed to apply MTU on interface:", selected_iface)
+        print("❌ Failed to apply MTU on interface:", selected_iface)
 
 def add_cron_job():
     python_path = shutil.which("python3") or "python3"
@@ -171,46 +181,49 @@ def add_cron_job():
         cron_jobs = existing_cron.stdout if existing_cron.returncode == 0 else ""
 
         if cron_line in cron_jobs:
-            print("[*] Cron job already exists.")
+            print("\033[1;33m[*] Cron job already exists.\033[0m")
             return
 
         new_cron = cron_jobs + "\n" + cron_line + "\n"
         proc = subprocess.run(["crontab", "-"], input=new_cron, text=True)
         if proc.returncode == 0:
-            print("[+] Cron job added to run every 5 minutes.")
+            print("\033[1;32m[+] Cron job added to run every 5 minutes.\033[0m")
         else:
-            print("[!] Failed to add cron job.")
+            print("\033[1;31m[!] Failed to add cron job.\033[0m")
     except Exception as e:
-        print(f"[!] Error adding cron job: {e}")
+        print(f"\033[1;31m[!] Error adding cron job: {e}\033[0m")
 
 def main(no_interact=False):
     print_banner()
     check_requirements()
 
     if not no_interact:
-        choice, ip, step = show_menu()
-        save_config({"choice": choice, "ip": ip, "step": step})
+        ip_type, ip, step = show_menu()
+        save_config({"ip_type": ip_type, "ip": ip, "step": step})
     else:
         cfg = load_config()
         if not cfg:
-            print("No saved configuration found, please run interactively first.")
+            print("\033[1;31m[!] No saved configuration found, please run interactively first.\033[0m")
             sys.exit(1)
-        choice = cfg.get("choice")
+        ip_type = cfg.get("ip_type")
         ip = cfg.get("ip")
         step = cfg.get("step")
 
-    if choice == "2":
+    if ip_type == "3":
         manual_mtu_set()
         return
 
-    interfaces = get_network_interfaces()
+    proto = "IPv4" if ip_type == "1" else "IPv6"
+
+    interfaces = get_network_interfaces(ipv6=(proto == "IPv6"))
     if not interfaces:
-        print("No valid network interfaces found.")
+        print("\033[1;31m[!] No valid network interfaces found.\033[0m")
         sys.exit(1)
 
     for interface in interfaces:
-        print(f"\n[*] Processing interface: {interface}")
-        find_max_mtu(ip, interface, step)
+        real_interface = interface.split("@")[0]
+        print(f"\n\033[1;36m[*] Processing interface: {interface}\033[0m")
+        find_max_mtu(ip, proto, real_interface, step)
 
     if not no_interact:
         add_cron_job()
@@ -223,5 +236,5 @@ if __name__ == "__main__":
     try:
         main(no_interact=args.no_interact)
     except KeyboardInterrupt:
-        print("\nInterrupted by user. Exiting...")
+        print("\n\033[1;31mInterrupted by user. Exiting...\033[0m")
         sys.exit(0)
