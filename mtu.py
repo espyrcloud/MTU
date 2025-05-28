@@ -3,7 +3,6 @@ import subprocess
 import sys
 import shutil
 import time
-import re
 import json
 
 CONFIG_FILE = os.path.expanduser("~/.mtu_optimizer_config.json")
@@ -51,14 +50,20 @@ def load_config():
 def show_menu():
     print('''
 Select IP type:
-1- IPv4
-2- IPv6
+1 - IPv4
+2 - IPv6
+3 - Manual MTU setting
 ''')
     while True:
-        ip_type = input("Enter choice [1-2]: ").strip()
-        if ip_type in ("1", "2"):
+        ip_type = input("Enter choice [1-3]: ").strip()
+        if ip_type in ("1", "2", "3"):
             break
-        print("\033[1;31mInvalid choice. Please enter 1 or 2.\033[0m")
+        print("\033[1;31mInvalid choice. Please enter 1, 2, or 3.\033[0m")
+
+    if ip_type == "3":
+        interfaces = get_network_interfaces()
+        manual_mtu_setting(interfaces)
+        sys.exit(0)
 
     dest_ip = input("Enter destination IP address (default: 1.1.1.1): ").strip()
     if not dest_ip:
@@ -68,8 +73,6 @@ Select IP type:
     return ip_type, dest_ip, step_size
 
 def get_network_interfaces():
-
-
     result = subprocess.run(["ip", "-o", "link", "show"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     interfaces = []
     for line in result.stdout.decode().splitlines():
@@ -86,7 +89,7 @@ def find_max_mtu(ip, proto, interface, step):
     print(f"🚀 Starting MTU discovery for {proto} on {interface} -> {ip}...")
     mtu = max_mtu
     while mtu >= min_mtu:
-        print(f"Testing MTU: {mtu} on {interface}...", end=' ')
+        print(f"📶 Testing MTU: {mtu} on {interface}...", end=' ')
         size = mtu - (28 if proto == "IPv4" else 48)
         ping_cmd = ["ping", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"] \
             if proto == "IPv4" else ["ping6", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"]
@@ -104,35 +107,48 @@ def find_max_mtu(ip, proto, interface, step):
         time.sleep(1)
 
     if last_success:
-        print(f"\nMaximum working MTU for {interface} is: {last_success}")
-
-        adjusted_mtu = last_success
-        if interface != "eth0":
-            adjusted_mtu = max(576, last_success - 50)  
-
-        print(f"🛠️ Setting MTU temporarily to {adjusted_mtu} on {interface}...")
-        result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(adjusted_mtu)])
+        print(f"\n📏 Maximum working MTU for {interface} is: {last_success}")
+        target_mtu = last_success if interface == "eth0" else last_success - 40
+        print(f"🛠️ Setting MTU temporarily to {target_mtu} on {interface}...")
+        result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(target_mtu)])
         if result.returncode == 0:
-            print(f"MTU successfully set to {adjusted_mtu} on {interface}")
+            print(f"MTU successfully set to {target_mtu} on {interface}")
         else:
             print("Failed to apply MTU on interface:", interface)
     else:
         print(f"No working MTU found for {interface} in range {min_mtu}-{max_mtu}")
 
+def manual_mtu_setting(interfaces):
+    print("\n🔧 Available interfaces:")
+    for idx, iface in enumerate(interfaces):
+        print(f"{idx + 1} - {iface}")
+    while True:
+        choice = input("Select interface by number: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(interfaces):
+            iface = interfaces[int(choice) - 1]
+            break
+        print("Invalid choice.")
+    while True:
+        mtu_val = input(f"Enter MTU value for {iface}: ").strip()
+        if mtu_val.isdigit():
+            break
+        print("Invalid MTU. Enter a numeric value.")
+    result = subprocess.run(["sudo", "ip", "link", "set", "dev", iface, "mtu", mtu_val])
+    if result.returncode == 0:
+        print(f"MTU {mtu_val} set on {iface}")
+    else:
+        print(f"Failed to set MTU on {iface}")
 
 def add_cron_job():
     python_path = shutil.which("python3") or "python3"
     script_path = os.path.abspath(sys.argv[0])
-
     cron_line = f"*/5 * * * * {python_path} {script_path} --no-interact >> ~/mtu_optimizer.log 2>&1"
     try:
         existing_cron = subprocess.run(["crontab", "-l"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         cron_jobs = existing_cron.stdout if existing_cron.returncode == 0 else ""
-
         if cron_line in cron_jobs:
             print("\033[1;33m[*] Cron job already exists.\033[0m")
             return
-
         new_cron = cron_jobs + "\n" + cron_line + "\n"
         proc = subprocess.run(["crontab", "-"], input=new_cron, text=True)
         if proc.returncode == 0:
@@ -166,7 +182,7 @@ def main(no_interact=False):
         sys.exit(1)
 
     for interface in interfaces:
-        real_interface = interface.split("@")[0]  # حذف @NONE
+        real_interface = interface.split("@")[0]
         print(f"\n\033[1;36m[*] Processing interface: {interface}\033[0m")
         find_max_mtu(ip, proto, real_interface, step)
 
