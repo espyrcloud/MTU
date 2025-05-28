@@ -105,14 +105,20 @@ def find_max_mtu(ip, proto, interface, step):
 
     if last_success:
         print(f"\n📏 Maximum working MTU for {interface} is: {last_success}")
-        print(f"🛠️ Setting MTU temporarily to {last_success} on {interface}...")
-        result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(last_success)])
+
+        adjusted_mtu = last_success
+        if interface != "eth0":
+            adjusted_mtu = max(576, last_success - 40)  
+
+        print(f"🛠️ Setting MTU temporarily to {adjusted_mtu} on {interface}...")
+        result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(adjusted_mtu)])
         if result.returncode == 0:
-            print(f"✅ MTU successfully set to {last_success} on {interface}")
+            print(f"✅ MTU successfully set to {adjusted_mtu} on {interface}")
         else:
             print("❌ Failed to apply MTU on interface:", interface)
     else:
         print(f"No working MTU found for {interface} in range {min_mtu}-{max_mtu}")
+
 
 def add_cron_job():
     python_path = shutil.which("python3") or "python3"
