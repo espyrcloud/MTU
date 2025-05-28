@@ -108,7 +108,7 @@ def find_max_mtu(ip, proto, interface, step):
     print(f"🚀 Starting MTU discovery for {proto} on {interface} -> {ip}...")
     mtu = max_mtu
     while mtu >= min_mtu:
-        print(f"📶 Testing MTU: {mtu} on {interface}...", end=' ')
+        print(f"Testing MTU: {mtu} on {interface}...", end=' ')
         size = mtu - (28 if proto == "IPv4" else 48)
         ping_cmd = ["ping", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"] \
             if proto == "IPv4" else ["ping6", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"]
@@ -120,7 +120,7 @@ def find_max_mtu(ip, proto, interface, step):
             last_success = mtu
             break
         else:
-            print("❌ Failed")
+            print("Failed")
 
         mtu -= step
         time.sleep(1)
@@ -134,9 +134,9 @@ def find_max_mtu(ip, proto, interface, step):
         print(f"🛠️ Setting MTU temporarily to {last_success} on {interface}...")
         result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(last_success)])
         if result.returncode == 0:
-            print(f"✅ MTU successfully set to {last_success} on {interface}")
+            print(f"MTU successfully set to {last_success} on {interface}")
         else:
-            print("❌ Failed to apply MTU on interface:", interface)
+            print("Failed to apply MTU on interface:", interface)
     else:
         print(f"No working MTU found for {interface} in range {min_mtu}-{max_mtu}")
 
@@ -167,9 +167,9 @@ def manual_mtu_set():
     print(f"🛠️ Setting MTU to {mtu_value} on {selected_iface}...")
     result = subprocess.run(["sudo", "ip", "link", "set", "dev", selected_iface, "mtu", str(mtu_value)])
     if result.returncode == 0:
-        print(f"✅ MTU successfully set to {mtu_value} on {selected_iface}")
+        print(f"MTU successfully set to {mtu_value} on {selected_iface}")
     else:
-        print("❌ Failed to apply MTU on interface:", selected_iface)
+        print("Failed to apply MTU on interface:", selected_iface)
 
 def add_cron_job():
     python_path = shutil.which("python3") or "python3"
