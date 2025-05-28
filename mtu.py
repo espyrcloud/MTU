@@ -68,10 +68,12 @@ Select IP type:
     return ip_type, dest_ip, step_size
 
 def get_network_interfaces():
+
+
     result = subprocess.run(["ip", "-o", "link", "show"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     interfaces = []
     for line in result.stdout.decode().splitlines():
-        iface = line.split(":")[1].strip()
+        iface = line.split(":")[1].strip().split("@")[0]
         if iface != "lo" and not iface.startswith(("veth", "docker", "br-", "vmnet", "virbr")):
             interfaces.append(iface)
     return interfaces
@@ -158,8 +160,9 @@ def main(no_interact=False):
         sys.exit(1)
 
     for interface in interfaces:
+        real_interface = interface.split("@")[0]  # حذف @NONE
         print(f"\n\033[1;36m[*] Processing interface: {interface}\033[0m")
-        find_max_mtu(ip, proto, interface, step)
+        find_max_mtu(ip, proto, real_interface, step)
 
     if not no_interact:
         add_cron_job()
