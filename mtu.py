@@ -86,7 +86,7 @@ def find_max_mtu(ip, proto, interface, step):
     print(f"🚀 Starting MTU discovery for {proto} on {interface} -> {ip}...")
     mtu = max_mtu
     while mtu >= min_mtu:
-        print(f"📶 Testing MTU: {mtu} on {interface}...", end=' ')
+        print(f"Testing MTU: {mtu} on {interface}...", end=' ')
         size = mtu - (28 if proto == "IPv4" else 48)
         ping_cmd = ["ping", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"] \
             if proto == "IPv4" else ["ping6", "-M", "do", "-c", "1", "-s", str(size), ip, "-W", "1"]
@@ -98,24 +98,24 @@ def find_max_mtu(ip, proto, interface, step):
             last_success = mtu
             break
         else:
-            print("❌ Failed")
+            print("Failed")
 
         mtu -= step
         time.sleep(1)
 
     if last_success:
-        print(f"\n📏 Maximum working MTU for {interface} is: {last_success}")
+        print(f"\nMaximum working MTU for {interface} is: {last_success}")
 
         adjusted_mtu = last_success
         if interface != "eth0":
-            adjusted_mtu = max(576, last_success - 40)  
+            adjusted_mtu = max(576, last_success - 50)  
 
         print(f"🛠️ Setting MTU temporarily to {adjusted_mtu} on {interface}...")
         result = subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", str(adjusted_mtu)])
         if result.returncode == 0:
-            print(f"✅ MTU successfully set to {adjusted_mtu} on {interface}")
+            print(f"MTU successfully set to {adjusted_mtu} on {interface}")
         else:
-            print("❌ Failed to apply MTU on interface:", interface)
+            print("Failed to apply MTU on interface:", interface)
     else:
         print(f"No working MTU found for {interface} in range {min_mtu}-{max_mtu}")
 
