@@ -6,6 +6,7 @@ import time
 import json
 
 CONFIG_FILE = os.path.expanduser("~/.mtu_optimizer_config.json")
+MANUAL_CONFIG_FILE = os.path.expanduser("~/.mtu_optimizer_manual.json")
 
 def print_banner():
     os.system('clear')
@@ -151,6 +152,16 @@ def manual_mtu_set():
     result = subprocess.run(["sudo", "ip", "link", "set", "dev", selected_iface, "mtu", str(mtu_value)])
     if result.returncode == 0:
         print(f"MTU successfully set to {mtu_value} on {selected_iface}")
+        manual_data = {
+            "interface": selected_iface,
+            "mtu": mtu_value
+        }
+        try:
+            with open(MANUAL_CONFIG_FILE, "w") as f:
+                json.dump(manual_data, f)
+            print(f"\033[1;32m[+] Manual MTU config saved for {selected_iface}\033[0m")
+        except Exception as e:
+            print(f"\033[1;31m[!] Failed to save manual config: {e}\033[0m")
     else:
         print("Failed to apply MTU on interface:", selected_iface)
 
@@ -196,6 +207,33 @@ def main(no_interact=False):
         manual_mtu_set()
         return
 
+    # بررسی تنظیمات دستی
+    manual_config = {}
+    skip_manual_interface = None
+
+    if os.path.exists(MANUAL_CONFIG_FILE):
+        try:
+            with open(MANUAL_CONFIG_FILE) as f:
+                manual_config = json.load(f)
+        except Exception as e:
+            print(f"\033[1;31m[!] Error reading manual config: {e}\033[0m")
+
+    if not no_interact and manual_config:
+        iface = manual_config.get("interface")
+        mtu = manual_config.get("mtu")
+        print(f"\n\033[1;33m[!] Manual MTU detected for interface {iface} (MTU={mtu})\033[0m")
+        answer = input(f"Do you want to override manual setting and let script auto-optimize {iface}? [y/N]: ").strip().lower()
+        if answer == "y":
+            try:
+                os.remove(MANUAL_CONFIG_FILE)
+                print(f"\033[1;32m[+] Manual MTU config removed. Script will now manage {iface} automatically.\033[0m")
+            except Exception as e:
+                print(f"\033[1;31m[!] Failed to delete manual config: {e}\033[0m")
+        else:
+            skip_manual_interface = iface
+    elif no_interact and manual_config:
+        skip_manual_interface = manual_config.get("interface")
+
     interfaces = get_network_interfaces()
     if not interfaces:
         print("\033[1;31m[!] No valid network interfaces found.\033[0m")
@@ -203,7 +241,12 @@ def main(no_interact=False):
 
     for interface in interfaces:
         real_interface = interface.split("@")[0]
-        print(f"\n[*] Processing interface: {interface}")
+
+        if skip_manual_interface and real_interface == skip_manual_interface:
+            print(f"\033[1;34m[*] Skipping {real_interface} due to manual MTU setting.\033[0m")
+            continue
+
+        print(f"\n[*] Processing interface: {real_interface}")
         find_max_mtu(ip, real_interface, step)
 
     if not no_interact:
