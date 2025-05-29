@@ -207,7 +207,6 @@ def main(no_interact=False):
         manual_mtu_set()
         return
 
-    # بررسی تنظیمات دستی
     manual_config = {}
     skip_manual_interface = None
 
