@@ -110,7 +110,7 @@ def find_max_mtu(ip, interface, step):
         time.sleep(1)
 
     if last_success:
-        if interface != "eth0":
+        if interface not in ["eth0", "ens33", "ens3", "ens"]:
             last_success -= 40
             if last_success < min_mtu:
                 last_success = min_mtu
