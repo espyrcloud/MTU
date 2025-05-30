@@ -90,6 +90,9 @@ def find_max_mtu(ip, interface, step):
     max_mtu = 1475
     last_success = None
 
+    print(f"Resetting MTU on {interface} to 1500 before test...")
+    subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", "1500"])
+
     print(f"Starting MTU discovery for IPv4 on {interface} -> {ip}...")
     mtu = max_mtu
     while mtu >= min_mtu:
