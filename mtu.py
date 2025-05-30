@@ -89,7 +89,6 @@ def find_max_mtu(ip, interface, step):
     min_mtu = 1420
     max_mtu = 1475
     last_success = None
-    time.sleep(1)
     print(f"Starting MTU discovery for IPv4 on {interface} -> {ip}...")
     mtu = max_mtu
     while mtu >= min_mtu:
