@@ -84,8 +84,12 @@ def get_network_interfaces():
         iface_set.add(iface)
 
     return list(iface_set)
+def reset_mtu(interface):
+    subprocess.run(["sudo", "ip", "link", "set", "dev", interface, "mtu", "1500"])
+    time.sleep(0.5) 
 
 def find_max_mtu(ip, interface, step):
+    reset_mtu(interface)
     min_mtu = 1420
     max_mtu = 1475
     last_success = None
